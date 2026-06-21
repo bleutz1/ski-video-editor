@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Ski Video Editor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@700;900&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --deep:      #062831;
+    --mid:       #0b3d4f;
+    --surface:   #0e4a5e;
+    --foam:      #eef6f5;
+    --foam-dim:  #b9d2d0;
+    --rope:      #d9622b;
+    --rope-dim:  #a84a1f;
+    --ok:        #4ec9a8;
+    --err:       #e2574c;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 50% -10%, var(--surface) 0%, var(--mid) 45%, var(--deep) 100%);
+    color: var(--foam);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  .wrap {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 20px 40px;
+    position: relative;
+  }
+
+  .wake-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    z-index: 0;
+  }
+  .wake-bg svg { width: 100%; height: 100%; }
+  .wake-line {
+    fill: none;
+    stroke: var(--foam);
+    stroke-opacity: 0.06;
+    stroke-width: 1.5;
+  }
+
+  header {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .mark {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+
+  h1 {
+    font-family: 'Archivo Expanded', sans-serif;
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 0;
+    line-height: 1.05;
+    text-transform: uppercase;
+  }
+  h1 span {
+    display: block;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--foam-dim);
+    margin-top: 3px;
+  }
+
+  main {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 440px;
+    margin-top: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .panel {
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    padding: 20px;
+    backdrop-filter: blur(6px);
+  }
+
+  .dropzone {
+    border: 1.5px dashed rgba(238,246,245,0.28);
+    border-radius: 14px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+    position: relative;
+    display: block;
+  }
+  .dropzone:active,
+  .dropzone.has-file {
+    border-color: var(--rope);
+    background: rgba(217,98,43,0.06);
+  }
+  .dropzone input[type=file] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .dz-icon {
+    width: 38px;
+    height: 38px;
+    margin: 0 auto 14px;
+    opacity: 0.85;
+  }
+
+  .dz-label {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 4px;
+  }
+  .dz-sub {
+    font-size: 13px;
+    color: var(--foam-dim);
+  }
+  .dz-filename {
+    margin-top: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ok);
+    word-break: break-all;
+    padding: 0 8px;
+  }
+
+  .mode-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--foam-dim);
+    margin-bottom: 10px;
+  }
+  .mode-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .mode-btn {
+    appearance: none;
+    border: 1.5px solid rgba(238,246,245,0.16);
+    background: rgba(255,255,255,0.02);
+    color: var(--foam-dim);
+    border-radius: 12px;
+    padding: 16px 8px 14px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .mode-btn svg { width: 22px; height: 22px; opacity: 0.6; transition: opacity 0.15s ease; }
+  .mode-btn.active {
+    border-color: var(--rope);
+    background: rgba(217,98,43,0.12);
+    color: var(--foam);
+  }
+  .mode-btn.active svg { opacity: 1; }
+
+  .submit-btn {
+    appearance: none;
+    border: none;
+    width: 100%;
+    padding: 17px;
+    border-radius: 14px;
+    background: var(--rope);
+    color: var(--foam);
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+  }
+  .submit-btn:active { transform: scale(0.98); }
+  .submit-btn:disabled {
+    background: rgba(217,98,43,0.3);
+    cursor: not-allowed;
+  }
+
+  .progress-panel {
+    display: none;
+    text-align: center;
+    padding: 32px 20px;
+  }
+  .progress-panel.show { display: block; }
+
+  .wake-spinner {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 20px;
+  }
+
+  .progress-status {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+  .progress-sub {
+    font-size: 13px;
+    color: var(--foam-dim);
+    margin-bottom: 20px;
+  }
+
+  .progress-bar-track {
+    width: 100%;
+    height: 5px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    width: 30%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--rope-dim), var(--rope));
+    animation: slide 1.6s ease-in-out infinite;
+  }
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(330%); }
+  }
+
+  .result-panel {
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .result-panel.show { display: flex; }
+
+  .result-panel video {
+    width: 100%;
+    border-radius: 14px;
+    display: block;
+    background: #000;
+  }
+
+  .download-btn {
+    appearance: none;
+    border: none;
+    width: 100%;
+    padding: 17px;
+    border-radius: 14px;
+    background: var(--ok);
+    color: var(--deep);
+    font-weight: 700;
+    font-size: 16px;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    display: block;
+  }
+
+  .reset-link {
+    text-align: center;
+    font-size: 13px;
+    color: var(--foam-dim);
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 4px;
+  }
+
+  .error-panel {
+    display: none;
+    text-align: center;
+    padding: 24px 20px;
+  }
+  .error-panel.show { display: block; }
+  .error-icon {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto 12px;
+    color: var(--err);
+  }
+  .error-msg {
+    font-size: 14px;
+    color: var(--foam-dim);
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+  .retry-btn {
+    appearance: none;
+    border: 1.5px solid rgba(238,246,245,0.2);
+    background: transparent;
+    color: var(--foam);
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  footer {
+    margin-top: auto;
+    padding-top: 32px;
+    font-size: 12px;
+    color: rgba(238,246,245,0.3);
+    text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress-bar-fill { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wake-bg">
+  <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">
+    <path class="wake-line" d="M -50 700 Q 100 650 200 700 T 450 700" />
+    <path class="wake-line" d="M -50 600 Q 100 540 200 600 T 450 600" />
+    <path class="wake-line" d="M -50 500 Q 100 430 200 500 T 450 500" />
+    <path class="wake-line" d="M -50 760 Q 100 720 200 760 T 450 760" />
+  </svg>
+</div>
+
+<div class="wrap">
+
+  <header>
+    <svg class="mark" viewBox="0 0 48 48" fill="none">
+      <path d="M4 36C9 36 9 31 14 31C19 31 19 36 24 36C29 36 29 31 34 31C39 31 39 36 44 36" stroke="#d9622b" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M4 41C9 41 9 37 14 37C19 37 19 41 24 41C29 41 29 37 34 37C39 37 39 41 44 41" stroke="#eef6f5" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+      <circle cx="30" cy="14" r="3.2" fill="#eef6f5"/>
+      <path d="M30 17 L30 26 M30 19 L24 23 M30 21 L36 17 M30 26 L25 33 M30 26 L35 32" stroke="#eef6f5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M14 33 L36 33" stroke="#eef6f5" stroke-width="1.4" stroke-dasharray="1 3" opacity="0.5"/>
+    </svg>
+    <h1>Ski Reframe<span>Auto-crop and track to vertical</span></h1>
+  </header>
+
+  <main>
+
+    <form id="uploadForm">
+      <div class="panel" style="margin-bottom:18px;">
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" accept="video/*" required>
+          <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="#eef6f5" stroke-width="1.6">
+            <path d="M12 16V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round"/>
+          </svg>
+          <div class="dz-label">Tap to choose a video</div>
+          <div class="dz-filename" id="fileName"></div>
+        </label>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px;">
+        <div class="mode-toggle">
+          <button type="button" class="mode-btn active" data-mode="slalom">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17c2 0 2-3 4-3s2 3 4 3 2-3 4-3 2 3 4 3 2-3 4-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Slalom
+          </button>
+          <button type="button" class="mode-btn" data-mode="jump">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 19l5-2 4-9 4 6 5-9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Jump
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submitBtn">Edit my Vid</button>
+    </form>
+
+    <div class="panel progress-panel" id="progressPanel">
+      <svg class="wake-spinner" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="26" stroke="rgba(238,246,245,0.12)" stroke-width="4"/>
+        <circle cx="32" cy="32" r="26" stroke="#d9622b" stroke-width="4" stroke-linecap="round"
+                stroke-dasharray="60 200" transform-origin="32 32">
+          <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="1.1s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+      <div class="progress-status" id="progressStatus">Uploading your video&hellip;</div>
+      <div class="progress-sub" id="progressSub">This can take a couple of minutes</div>
+      <div class="progress-bar-track"><div class="progress-bar-fill"></div></div>
+    </div>
+
+    <div class="panel result-panel" id="resultPanel">
+      <video id="resultVideo" controls playsinline></video>
+      <a class="download-btn" id="downloadBtn" download="reframed.mp4">Download video</a>
+      <button class="reset-link" id="resetBtn" type="button">Edit another clip</button>
+    </div>
+
+    <div class="panel error-panel" id="errorPanel">
+      <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 8v5M12 16h.01" stroke-linecap="round"/>
+      </svg>
+      <div class="progress-status">Something went wrong</div>
+      <div class="error-msg" id="errorMsg">The video couldn't be processed. Try again, or try a different clip.</div>
+      <button class="retry-btn" id="retryBtn" type="button">Try again</button>
+    </div>
+
+  </main>
+
+  <footer>Buy me a drink venmo: @benleutz</footer>
+</div>
+
+<script>
+  const UPLOAD_URL = "https://bleutz1--ski-reframe-upload.modal.run";
+  const STATUS_URL = "https://bleutz1--ski-reframe-status.modal.run";
+  const RESULT_URL = "https://bleutz1--ski-reframe-result.modal.run";
+
+  const POLL_INTERVAL_MS = 6000;
+  const MAX_POLL_MINUTES = 12;
+
+  const form          = document.getElementById('uploadForm');
+  const fileInput      = document.getElementById('fileInput');
+  const dropzone        = document.getElementById('dropzone');
+  const fileNameEl      = document.getElementById('fileName');
+  const modeButtons     = document.querySelectorAll('.mode-btn');
+  const submitBtn        = document.getElementById('submitBtn');
+
+  const progressPanel   = document.getElementById('progressPanel');
+  const progressStatus  = document.getElementById('progressStatus');
+  const progressSub     = document.getElementById('progressSub');
+
+  const resultPanel     = document.getElementById('resultPanel');
+  const resultVideo     = document.getElementById('resultVideo');
+  const downloadBtn     = document.getElementById('downloadBtn');
+  const resetBtn        = document.getElementById('resetBtn');
+
+  const errorPanel      = document.getElementById('errorPanel');
+  const errorMsg        = document.getElementById('errorMsg');
+  const retryBtn        = document.getElementById('retryBtn');
+
+  let selectedMode = 'slalom';
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+      fileNameEl.textContent = fileInput.files[0].name;
+      dropzone.classList.add('has-file');
+    }
+  });
+
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedMode = btn.dataset.mode;
+    });
+  });
+
+  function showPanel(panel) {
+    [form, progressPanel, resultPanel, errorPanel].forEach(p => {
+      if (p === form) {
+        p.style.display = (p === panel) ? 'flex' : 'none';
+        p.style.flexDirection = 'column';
+        p.style.gap = '18px';
+      } else {
+        p.classList.toggle('show', p === panel);
+      }
+    });
+  }
+
+  function resetAll() {
+    form.reset();
+    fileNameEl.textContent = '';
+    dropzone.classList.remove('has-file');
+    modeButtons.forEach(b => b.classList.remove('active'));
+    modeButtons[0].classList.add('active');
+    selectedMode = 'slalom';
+    showPanel(form);
+  }
+
+  resetBtn.addEventListener('click', resetAll);
+  retryBtn.addEventListener('click', resetAll);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    showPanel(progressPanel);
+    progressStatus.textContent = 'Uploading your video…';
+    progressSub.textContent = 'Hang tight, this can take a few minutes';
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mode', selectedMode);
+
+      const uploadRes = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
+      if (!uploadRes.ok) throw new Error('Upload failed (' + uploadRes.status + ')');
+      const { call_id } = await uploadRes.json();
+      if (!call_id) throw new Error('No job ID returned from server');
+
+      progressStatus.textContent = 'Tracking the skier…';
+      progressSub.textContent = 'This usually takes 1–3 minutes';
+
+      const maxAttempts = Math.ceil((MAX_POLL_MINUTES * 60 * 1000) / POLL_INTERVAL_MS);
+      let attempts = 0;
+      let done = false;
+
+      while (attempts < maxAttempts && !done) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+        attempts++;
+
+        const statusRes = await fetch(`${STATUS_URL}?call_id=${encodeURIComponent(call_id)}`);
+        const statusData = await statusRes.json();
+
+        if (statusData.status === 'done') {
+          done = true;
+        } else if (statusData.status === 'error') {
+          throw new Error(statusData.detail || 'Processing failed');
+        } else {
+          if (attempts > 3) progressStatus.textContent = 'Almost there…';
+        }
+      }
+
+      if (!done) throw new Error('This is taking longer than expected. Try again in a bit.');
+
+      progressStatus.textContent = 'Fetching your video…';
+      const resultRes = await fetch(`${RESULT_URL}?call_id=${encodeURIComponent(call_id)}`);
+      if (!resultRes.ok) throw new Error('Could not fetch the finished video');
+
+      const blob = await resultRes.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      resultVideo.src = blobUrl;
+      downloadBtn.href = blobUrl;
+      showPanel(resultPanel);
+
+    } catch (err) {
+      errorMsg.textContent = err.message || 'Something went wrong. Please try again.';
+      showPanel(errorPanel);
+    }
+  });
+</script>
+
+</body>
+</html>
