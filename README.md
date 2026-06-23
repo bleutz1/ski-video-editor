@@ -4,7 +4,7 @@ An AI-assisted video processing application that automatically converts traditio
 
 ## Overview
 
-Modern social media platforms prioritize vertical video formats, but most action sports footage is captured in traditional landscape orientation. This project solves that problem by using computer vision techniques to identify and track the athlete, keeping the skier centered while generating a cropped vertical video suitable for platforms such as Instagram Reels, TikTok, and YouTube Shorts.
+Modern social media platforms prioritize vertical video formats, but most sports footage is captured in traditional landscape orientation. This project solves that problem by using computer vision techniques to identify and track the athlete, keeping the skier centered while generating a cropped vertical video suitable for platforms such as Instagram Reels, TikTok, and YouTube Shorts.
 
 The application takes a standard widescreen video input and automatically:
 - Detects the waterskier throughout the video
@@ -48,39 +48,76 @@ Provides a simple interface for uploading videos and generating processed clips.
 
 ## Technology Stack
 
+### Backend
 - Python
 - OpenCV
-- Computer Vision / Object Tracking
-- Video Processing
-- Flask
-- HTML/CSS/JavaScript
-- Vercel Deployment
+- Modal Serverless Compute
+- GPU-accelerated video processing
+- Video encoding and processing pipeline
+
+### Frontend
+- HTML
+- CSS
+- JavaScript
+
+### Infrastructure
+- Vercel Deployment (Frontend)
+- Modal Cloud Functions (Backend Processing)
+
+### Core Concepts
+- Computer Vision
+- Object Tracking
+- Frame-by-frame Video Processing
+- GPU Accelerated Workflows
+- Serverless Architecture
 
 ## Project Architecture
 
-1. User uploads a landscape video
-2. Video frames are extracted and analyzed
-3. The skier position is detected/tracked
-4. A dynamic crop window follows the skier
-5. Frames are recombined into a vertical video output
+The application uses a serverless video processing pipeline:
+
+1. User uploads a landscape video through the web interface
+2. Video is transferred to backend processing services
+3. Modal GPU compute environment processes the video
+4. Frames are extracted and analyzed
+5. Athlete movement is tracked throughout the video
+6. Dynamic crop positions are calculated
+7. Frames are reconstructed into a 9:16 portrait video
+8. Original audio is preserved and synchronized
+9. Processed video is returned to the user
+
+### Backend Functions
+
+The backend is separated into dedicated processing functions:
+
+- `upload`
+  - Handles video upload workflow
+
+- `process_video`
+  - GPU accelerated video processing
+  - Performs tracking, reframing, and rendering
+
+- `status`
+  - Tracks processing progress
+
+- `result`
+  - Handles completed video retrieval
 
 ## Future Improvements
 
 Potential enhancements:
 - Improved object detection using deep learning models
-- Multi-athlete tracking
-- Automatic highlight detection
+- Automated video type selection (Slalom or Jump Video)
+- Multiple video submissions
 - Motion prediction for smoother camera movement
 - Cloud-based video processing pipeline
-- Audio preservation and optimization
 
 ## Motivation
 
-This project was created to solve a practical problem in waterski media production: converting long-distance jump and slalom footage into engaging short-form content without requiring manual video editing.
+This project was created to solve a practical problem in waterski media production: converting landscape jump and slalom footage originally used for coaching and self-coaching into engaging short-form social-media-ready content without requiring manual video editing.
 
 As an athlete and engineer, this project combines my interests in sports, software development, and applying engineering concepts to real-world problems.
 
 ## Author
 
 Ben Leutz  
-Aerospace Engineer | Controls & Simulation | Computer Vision Applications
+Aerospace Engineer | Controls & Simulation 
