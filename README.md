@@ -4,7 +4,7 @@ An AI-assisted video processing application that automatically converts traditio
 
 ## Overview
 
-Modern social media platforms prioritize vertical video formats, but most sports footage is captured in traditional landscape orientation. This project solves that problem by using computer vision techniques to identify and track the athlete, keeping the skier centered while generating a cropped vertical video suitable for platforms such as Instagram Reels, TikTok, and YouTube Shorts.
+Modern social media platforms prioritize vertical video formats, but most fact-paced sports footage is captured in traditional landscape orientation. This project solves that by using computer vision techniques to identify and track the athlete, keeping the athlete centered while generating a cropped vertical video suitable for platforms such as Instagram Reels, TikTok, and YouTube Shorts.
 
 The application takes a standard widescreen video input and automatically:
 - Detects the waterskier throughout the video
