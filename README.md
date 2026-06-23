@@ -1,123 +1,141 @@
 # Ski Video Editor
 
-An AI-assisted video processing application that automatically converts traditional landscape waterski videos into social media optimized vertical (9:16) videos by tracking the skier throughout the clip and dynamically reframing the camera view.
+![Python](https://img.shields.io/badge/Python-3.10+-blue) ![Vercel](https://img.shields.io/badge/Deployed-Vercel-black) ![Modal](https://img.shields.io/badge/Backend-Modal_GPU-purple) ![License](https://img.shields.io/badge/License-MIT-green)
+
+An AI-powered video processing application that automatically converts landscape waterski footage into social-media-optimized vertical (9:16) video by tracking the skier throughout the clip and dynamically reframing in real time.
+
+**Live demo:** https://ski-video-editor.vercel.app
+
+---
 
 ## Overview
 
-Modern social media platforms prioritize vertical video formats, but most fact-paced sports footage is captured in traditional landscape orientation. This project solves that by using computer vision techniques to identify and track the athlete, keeping the athlete centered while generating a cropped vertical video suitable for platforms such as Instagram Reels, TikTok, and YouTube Shorts.
+Modern social media platforms prioritize vertical video, but fast-paced sports footage is almost always captured in landscape orientation. This project solves that with computer vision — detecting and tracking the athlete frame-by-frame to generate a smooth, cropped vertical output ready for Instagram Reels, TikTok, and YouTube Shorts. No manual editing required.
 
-The application takes a standard widescreen video input and automatically:
-- Detects the waterskier throughout the video
-- Tracks skier movement frame-by-frame
-- Calculates dynamic crop positioning
-- Generates a smooth 9:16 vertical output
-- Maintains focus on the athlete during high-speed motion
+The application takes a standard widescreen input and automatically:
+- Detects the waterskier using a YOLOv8 person detection model
+- Tracks skier movement frame-by-frame with a multi-state tracking engine
+- Calculates dynamic crop positioning with EMA smoothing and hard per-frame speed clamping
+- Generates a smooth 9:16 vertical output at full resolution
+- Preserves the original audio track
+
+---
 
 ## Demo
-https://ski-video-editor.vercel.app
-### Original Landscape Videos
 
-Traditional widescreen waterski footage:
-
+### Original Landscape Video
 ![Original Landscape](images/original.png)
 ![Original Landscape](images/original2.png)
 
-### Generated Social Media Format
-
-Automatically reframed vertical video with skier tracking:
-
+### Generated Vertical Output
 ![Vertical Output](images/output.png)
 ![Vertical Output](images/output2.png)
 
+---
+
 ## Features
 
-### Automated Subject Tracking
-Uses computer vision-based tracking to follow the skier as they move across the frame, reducing the need for manual editing.
+### YOLOv8 Subject Tracking
+Runs YOLOv8s inference on each frame (downsampled to 1280px for speed, scaled back for full-res cropping) to detect and follow the skier across the entire clip. Includes a size-sanity filter to reject false positives from the boat, canopy, and water spray.
 
-### Dynamic Video Reframing
-Instead of applying a static crop, the application adjusts the crop window throughout the video to keep the athlete visible.
+### Multi-State Tracking Engine
+A purpose-built state machine (TRACKING → COASTING → REACQUIRING) handles the full range of real-world conditions: detection gaps from spray or backlight, fast lateral motion, and airborne phases during jump events. Supports two modes:
+- **Slalom** — optimized for fast side-to-side motion with velocity coasting when the skier is briefly lost
+- **Jump** — adds an AIRBORNE state that detects when the skier leaves the ramp and switches to ultra-slow panning, since the background is static during the arc
 
-### Social Media Optimization
-Outputs videos in a 9:16 aspect ratio optimized for:
-- Instagram Reels
-- TikTok
-- YouTube Shorts
+### Smooth, Snap-Free Output
+EMA smoothing on the crop position is combined with a hard per-frame speed clamp as a final safety net — nothing bypasses it. A detection averaging buffer (5–7 frames) absorbs YOLO jitter before it can affect the crop, and a miss-grace window prevents single-frame flickers from triggering unnecessary state transitions.
 
-### Web-Based Interface
-Provides a simple interface for uploading videos and generating processed clips.
+### Serverless GPU Backend
+Processing runs on Modal's serverless GPU infrastructure. A polling architecture (upload → get call ID → poll status → fetch result) was used to avoid Modal's 150-second web endpoint timeout, keeping the frontend responsive on large 4K video files.
 
-## Technology Stack
+### Social Media Ready Output
+- 9:16 aspect ratio (1080×1920)
+- Full-resolution crop from 4K source
+- Original audio preserved and synchronized
 
-### Backend
-- Python
-- OpenCV
-- Modal Serverless Compute
-- GPU-accelerated video processing
-- Video encoding and processing pipeline
+---
 
-### Frontend
-- HTML
-- CSS
-- JavaScript
+## Tech Stack
 
-### Infrastructure
-- Vercel Deployment (Frontend)
-- Modal Cloud Functions (Backend Processing)
+| Layer | Technology |
+|---|---|
+| Object Detection | YOLOv8s (Ultralytics) |
+| Video Processing | Python, OpenCV |
+| Backend Compute | Modal Serverless GPU |
+| Frontend | HTML, CSS, JavaScript |
+| Hosting | Vercel |
 
-### Core Concepts
-- Computer Vision
-- Object Tracking
-- Frame-by-frame Video Processing
-- GPU Accelerated Workflows
-- Serverless Architecture
+---
 
-## Project Architecture
+## Architecture
 
-The application uses a serverless video processing pipeline:
+```
+User (browser)
+    │
+    ▼
+index.html (Vercel)
+    │  POST /upload
+    ▼
+Modal upload endpoint
+    │  enqueues async job, returns call_id
+    ▼
+Modal process_video (GPU)
+    ├── YOLO inference per frame
+    ├── State machine: TRACKING / COASTING / REACQUIRING / AIRBORNE
+    ├── EMA smoothing + hard speed clamp
+    └── ffmpeg audio merge
+    │
+    ▼
+Modal result endpoint
+    │  browser polls /status → /result
+    ▼
+User downloads vertical video
+```
 
-1. User uploads a landscape video through the web interface
-2. Video is transferred to backend processing services
-3. Modal GPU compute environment processes the video
-4. Frames are extracted and analyzed
-5. Athlete movement is tracked throughout the video
-6. Dynamic crop positions are calculated
-7. Frames are reconstructed into a 9:16 portrait video
-8. Original audio is preserved and synchronized
-9. Processed video is returned to the user
+**Backend endpoints:**
+- `POST /upload` — accepts video, enqueues processing, returns `call_id`
+- `GET /status?call_id=...` — returns job state (queued / running / complete)
+- `GET /result?call_id=...` — returns processed video on completion
 
-### Backend Functions
+---
 
-The backend is separated into dedicated processing functions:
+## Local Development
 
-- `upload`
-  - Handles video upload workflow
+```bash
+# Clone the repo
+git clone https://github.com/bleutz1/ski-video-editor
+cd ski-video-editor
 
-- `process_video`
-  - GPU accelerated video processing
-  - Performs tracking, reframing, and rendering
+# Install Python dependencies
+pip install ultralytics opencv-python numpy
 
-- `status`
-  - Tracks processing progress
+# Run slalom reframe
+python slalom.py input.mov output.mp4
 
-- `result`
-  - Handles completed video retrieval
+# Run jump reframe
+python jump.py input.mov output.mp4
+```
 
-## Future Improvements
+**Common tuning flags:**
+```bash
+# Adjust tracking sensitivity
+python slalom.py input.mov output.mp4 --conf 0.20 --smooth 0.18 --max_speed 100
 
-Potential enhancements:
-- Improved object detection using deep learning models
-- Automated video type selection (Slalom or Jump Video)
-- Multiple video submissions
-- Motion prediction for smoother camera movement
-- Cloud-based video processing pipeline
+# Enable debug CSV logging (uncomment debug_log lines in script first)
+python jump.py input.mov output.mp4 --conf 0.12 --air_smooth 0.04
+```
+
+---
 
 ## Motivation
 
-This project was created to solve a practical problem in waterski media production: converting landscape jump and slalom footage originally used for coaching and self-coaching into engaging short-form social-media-ready content without requiring manual video editing.
+This project started as a practical problem in waterski media production: converting landscape footage originally captured for coaching into engaging short-form content without manual editing. As an athlete and aerospace engineer, it became an opportunity to apply control systems thinking (state machines, EMA filtering, velocity coasting) to a real computer vision pipeline — and to build something genuinely useful for my sport.
 
-As an athlete and engineer, this project combines my interests in sports, software development, and applying engineering concepts to real-world problems.
+---
 
 ## Author
 
-Ben Leutz  
-Aerospace Engineer | Controls & Simulation 
+**Ben Leutz**  
+Aerospace Engineer | Controls & Simulation  
+[LinkedIn](https://www.linkedin.com/in/YOUR-LINKEDIN-HANDLE-HERE) · [GitHub](https://github.com/bleutz1)
