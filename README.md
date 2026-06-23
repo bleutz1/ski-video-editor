@@ -15,19 +15,19 @@ The application takes a standard widescreen video input and automatically:
 
 ## Demo
 
-### Original Landscape Video
+### Original Landscape Videos
 
 Traditional widescreen waterski footage:
 
 ![Original Landscape](images/original.png)
-
+![Original Landscape](images/original2.png)
 
 ### Generated Social Media Format
 
 Automatically reframed vertical video with skier tracking:
 
 ![Vertical Output](images/output.png)
-
+![Vertical Output](images/output2.png)
 
 ## Features
 
