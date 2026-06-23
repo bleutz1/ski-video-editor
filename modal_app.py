@@ -82,7 +82,7 @@ def process_video(video_bytes: bytes, mode: str, original_filename: str) -> byte
     return final_path.read_bytes()
 
 
-@app.function(image=image, timeout=60)
+@app.function(image=image, timeout=90)
 @modal.fastapi_endpoint(method="POST")
 async def upload(file: UploadFile = File(...), mode: str = Form("slalom")):
     if mode not in ("slalom", "jump"):
@@ -96,7 +96,7 @@ async def upload(file: UploadFile = File(...), mode: str = Form("slalom")):
     return JSONResponse({"call_id": call.object_id})
 
 
-@app.function(image=image, timeout=30)
+@app.function(image=image, timeout=60)
 @modal.fastapi_endpoint(method="GET")
 async def status(call_id: str):
     function_call = modal.FunctionCall.from_id(call_id)
@@ -111,7 +111,7 @@ async def status(call_id: str):
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
 
 
-@app.function(image=image, timeout=30)
+@app.function(image=image, timeout=60)
 @modal.fastapi_endpoint(method="GET")
 async def result(call_id: str):
     function_call = modal.FunctionCall.from_id(call_id)
