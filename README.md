@@ -14,7 +14,7 @@ The application takes a standard widescreen video input and automatically:
 - Maintains focus on the athlete during high-speed motion
 
 ## Demo
-
+https://ski-video-editor.vercel.app
 ### Original Landscape Videos
 
 Traditional widescreen waterski footage:
