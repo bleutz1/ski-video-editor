@@ -130,7 +130,9 @@ python jump.py input.mov output.mp4 --conf 0.12 --air_smooth 0.04
 
 ## Motivation
 
-This project started as a practical problem in waterski media production: converting landscape footage originally captured for coaching into engaging short-form content without manual editing. As an athlete and aerospace engineer, it became an opportunity to apply control systems thinking (state machines, EMA filtering, velocity coasting) to a real computer vision pipeline — and to build something genuinely useful for my sport.
+This project was created to solve a practical problem in waterski media production: converting landscape jump and slalom footage originally used for coaching and self-coaching into engaging short-form social-media-ready content without requiring manual video editing.
+
+As an athlete and engineer, this project combines my interests in sports, software development, and applying engineering concepts to real-world problems.
 
 ---
 
@@ -138,4 +140,4 @@ This project started as a practical problem in waterski media production: conver
 
 **Ben Leutz**  
 Aerospace Engineer | Controls & Simulation  
-[LinkedIn](https://www.linkedin.com/in/YOUR-LINKEDIN-HANDLE-HERE) · [GitHub](https://github.com/bleutz1)
+[LinkedIn](https://www.linkedin.com/in/ben-leutz/) · [GitHub](https://github.com/bleutz1)
