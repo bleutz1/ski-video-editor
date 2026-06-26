@@ -144,11 +144,6 @@ The filter mostly flies on its own velocity estimate. (default: 120.0)""")
     p.add_argument("--air_max_speed", type=int, default=25,
                    help="Hard per-frame pixel cap while AIRBORNE — background is static, no reason to move fast. (default: 25)")
 
-    p.add_argument("--reacquire_max_speed", type=int, default=30,
-                   help="""Hard per-frame pixel cap while REACQUIRING.
-Lower than max_speed so the catch-up after a long coast is visually gradual
-rather than a sudden slide at full speed. (default: 30)""")
-
     # ── Lost-skier behavior ──────────────────────────────────────────────────
     p.add_argument("--miss_grace", type=int, default=4,
                    help="Consecutive missed frames before leaving TRACKING → COASTING. (default: 4)")
@@ -185,27 +180,10 @@ def clamp_crop(cx, cy, cw, ch, fw, fh, headroom):
     return x1, y1
 
 
-def detect_skier_yolo(model, frame_small, conf, search_cx_norm, search_radius_px,
-                       expected_box_h=None, is_tracking=True):
-    """
-    Returns (cx, cy, box_height, confidence) in frame_small coords, or None.
-
-    search_cx_norm   — normalized [0,1] x-center to search around.
-                       In TRACKING: last detected position.
-                       In COASTING/REACQUIRING: Kalman predicted position,
-                       which is where the skier *should* be, not where they
-                       were last seen.
-    search_radius_px — how far from search_cx_norm to accept a detection.
-                       Tight (0.12*w) while TRACKING; widens progressively
-                       during long coasts so the skier can be found anywhere
-                       in the frame after a multi-second gap.
-    is_tracking      — True in TRACKING/AIRBORNE: use tight size filter (0.45x)
-                       to block buoys. False in COASTING/REACQUIRING: loosen to
-                       0.25x so a distant/small skier isn't rejected by a rolling
-                       average built from close-up ground-phase frames.
-    """
+def detect_skier_yolo(model, frame_small, conf, last_cx_norm, jump_limit_px, expected_box_h=None):
+    """Returns (cx, cy, box_height) in frame_small coords, or None."""
     h, w = frame_small.shape[:2]
-    top_mask    = int(h * 0.06)
+    top_mask    = int(h * 0.06)   # low mask — airborne skier can be high in frame
     bottom_mask = int(h * 0.65)
     roi = frame_small[top_mask:bottom_mask, :]
 
@@ -216,66 +194,36 @@ def detect_skier_yolo(model, frame_small, conf, search_cx_norm, search_radius_px
             b = box.xyxy[0].cpu().numpy().copy()
             b[1] += top_mask
             b[3] += top_mask
-            c = float(box.conf[0].cpu().numpy())
-            boxes.append((b, c))
+            boxes.append(b)
 
     if not boxes:
         return None
 
-    # Y-zone filter — reject center-of-box in boat/gunwale zone
     y_cutoff = top_mask + (bottom_mask - top_mask) * 0.85
-    boxes = [(b, c) for b, c in boxes if (b[1]+b[3])/2 < y_cutoff]
+    boxes = [b for b in boxes if (b[1]+b[3])/2 < y_cutoff]
     if not boxes:
         return None
 
-    # ── Hard minimum box height ──────────────────────────────────────────────
-    # Skier is typically 40-100px tall at 1280px detect width.
-    # Buoy in test footage was 20-27px — floor kills it outright.
-    boxes = [(b, c) for b, c in boxes if (b[3]-b[1]) >= 32]
-    if not boxes:
-        return None
-
-    # ── Size sanity filter ───────────────────────────────────────────────────
-    # TRACKING: tight 0.45x lower bound blocks buoys (27px buoy vs 50px avg).
-    # COASTING/REACQUIRING: loosen to 0.25x — the rolling average is built from
-    # close-up frames where box_h ~90-100px. A distant skier in spray may have
-    # box_h ~40px which is < 90*0.45=40.5 and gets wrongly rejected. During
-    # coast we care more about finding the skier than blocking false positives
-    # (the proximity/aspect/min-height filters still protect us).
-    size_lower = 0.45 if is_tracking else 0.25
     if expected_box_h is not None and expected_box_h > 0:
-        boxes = [(b, c) for b, c in boxes
-                 if (b[3]-b[1]) < expected_box_h * 2.2
-                 and (b[3]-b[1]) > expected_box_h * size_lower]
+        boxes = [b for b in boxes if (b[3]-b[1]) < expected_box_h * 2.2
+                                   and (b[3]-b[1]) > expected_box_h * 0.25]
         if not boxes:
             return None
 
-    # ── Aspect ratio filter ──────────────────────────────────────────────────
-    # Skier is always taller than wide. Buoys/balls are square or wider.
-    boxes = [(b, c) for b, c in boxes if (b[3]-b[1]) > (b[2]-b[0]) * 0.92]
-    if not boxes:
-        return None
-
-    # ── Proximity filter ─────────────────────────────────────────────────────
-    # Use search_cx_norm (Kalman predicted position during coast) as the
-    # center, with a radius that widens the longer we've been lost.
-    # When search_radius_px >= w the filter is effectively disabled (full scan).
-    if search_cx_norm is not None and search_radius_px < w:
-        search_cx_px = search_cx_norm * w
-        filtered = [(b, c) for b, c in boxes
-                    if abs((b[0]+b[2])/2 - search_cx_px) <= search_radius_px]
+    if last_cx_norm is not None:
+        last_cx_px = last_cx_norm * w
+        filtered = [b for b in boxes
+                    if abs((b[0]+b[2])/2 - last_cx_px) <= jump_limit_px]
         if filtered:
             boxes = filtered
-        # If nothing within radius, fall through to full-frame best pick
-        # rather than returning None — this is the key change. During a long
-        # coast we'd rather find the skier anywhere than miss entirely.
+        else:
+            return None
 
-    # ── Confidence-weighted height score ─────────────────────────────────────
-    best, best_conf = max(boxes, key=lambda bc: (bc[0][3]-bc[0][1]) * bc[1])
-    cx    = float((best[0]+best[2])/2)
-    cy    = float((best[1]+best[3])/2)
+    best = max(boxes, key=lambda b: (b[2]-b[0]) * (b[3]-b[1]))
+    cx = float((best[0]+best[2])/2)
+    cy = float((best[1]+best[3])/2)
     box_h = float(best[3]-best[1])
-    return cx, cy, box_h, best_conf
+    return cx, cy, box_h
 
 
 def main():
@@ -312,38 +260,16 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(args.output, fourcc, FPS, (OUT_W, OUT_H))
 
-    # ── Cold-start: seed Kalman from first detectable frame ─────────────────
-    # Initialising at frame center caused huge velocity spikes in frames 1-13
-    # as the filter tried to chase the skier (who was already mid-frame).
-    # Instead, scan the first few frames to find the skier, then seed directly.
-    print("Seeding tracker from first frame...")
-    seed_cx, seed_cy = FW / 2.0, FH * 0.42   # fallback if no detection
-    for _seed_attempt in range(30):            # scan up to first 30 frames
-        ret_s, frame_s = cap.read()
-        if not ret_s:
-            break
-        small_s = cv2.resize(frame_s, (AW, AH))
-        seed_result = detect_skier_yolo(model, small_s, args.conf, 0.5, jump_limit_px)
-        if seed_result is not None:
-            rcx_s, rcy_s, _, _ = seed_result
-            seed_cx = rcx_s * sx
-            seed_cy = rcy_s * sy
-            print(f"  Skier found at frame {_seed_attempt+1}: cx={seed_cx:.0f} cy={seed_cy:.0f}")
-            break
-    else:
-        print("  No skier found in first 30 frames — using frame center")
-    # Rewind so we re-process from frame 1 (VideoCapture supports this)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
+    # ── Kalman filter — initialised at frame center ──────────────────────────
     kf = KalmanTracker(
-        cx=seed_cx,
-        cy=seed_cy,
+        cx=FW / 2.0,
+        cy=FH * 0.42,
         process_noise=args.process_noise,
         measurement_noise=args.measurement_noise,
     )
 
     smooth_cx, smooth_cy = kf.position
-    last_cx_norm = seed_cx / FW
+    last_cx_norm = 0.5
 
     # Airborne detection averaging (separate from ground det_buf)
     air_det_buf_x = deque(maxlen=args.air_det_avg)
@@ -364,8 +290,6 @@ def main():
     miss_streak       = 0
     reacq_miss_streak = 0
     pending_candidate = None
-    reacq_speed_cap   = 30.0  # set on REACQUIRING entry from actual gap size
-    reacq_ramp_frames = 0     # counts frames since last reacquire for speed ramp-up
 
     yolo_hits   = 0
     coast_count = 0
@@ -375,8 +299,8 @@ def main():
     print("Processing...\n")
     frame_num = 0
 
-    #debug_log = open(args.output + ".debug.csv", "w")
-    #debug_log.write("frame,time_s,state,detected,box_h,conf,is_airborne,target_cx,target_cy,smooth_cx,smooth_cy,kf_vx,kf_vy\n")
+    # debug_log = open(args.output + ".debug.csv", "w")
+    # debug_log.write("frame,time_s,state,detected,box_h,is_airborne,target_cx,target_cy,smooth_cx,smooth_cy,kf_vx,kf_vy\n")
 
     while True:
         ret, frame = cap.read()
@@ -393,35 +317,12 @@ def main():
 
         small      = cv2.resize(frame, (AW, AH))
         expected_h = float(np.mean(ground_box_heights)) if len(ground_box_heights) >= 5 else None
-
-        # ── State-aware search center and radius ─────────────────────────────
-        # TRACKING: tight window around last detected position — false positive
-        #   rejection is most important here.
-        # COASTING/REACQUIRING: use Kalman predicted position as search center
-        #   (better than last_cx_norm which is stale), and widen the radius
-        #   progressively so a skier who has moved far can still be found.
-        #   After ~5s the whole frame is searched — we'd rather risk one false
-        #   positive than never reacquire.
-        if state == "TRACKING" or state == "AIRBORNE":
-            search_cx  = last_cx_norm
-            search_rad = jump_limit_px
-        else:
-            # Kalman predicted x in detect-frame coords
-            pred_cx_full, _ = kf.position
-            search_cx  = pred_cx_full / (FW / AW) / AW   # → [0,1] in detect space
-            search_cx  = float(np.clip(search_cx, 0.0, 1.0))
-            # Widen by 8px/second lost, floor at jump_limit_px, ceil at full width
-            widen      = (lost_frames / FPS) * 8.0 * (AW / 1280.0)
-            search_rad = min(AW, jump_limit_px + widen)
-
-        is_tracking_state = state in ("TRACKING", "AIRBORNE")
-        result = detect_skier_yolo(model, small, args.conf, search_cx, search_rad,
-                                   expected_h, is_tracking=is_tracking_state)
+        result     = detect_skier_yolo(model, small, args.conf, last_cx_norm, jump_limit_px, expected_h)
 
         # ── Airborne heuristic ───────────────────────────────────────────────
         is_airborne_detection = False
         if result is not None:
-            _, _, box_h, det_conf = result
+            _, _, box_h = result
             if len(ground_box_heights) >= 8:
                 avg_ground_h = np.mean(ground_box_heights)
                 if box_h < avg_ground_h * 0.45:
@@ -433,20 +334,11 @@ def main():
         # ════════════════════════════════════════════════════════════════════
         if state == "TRACKING":
             if result is not None:
-                rcx, rcy, box_h, det_conf = result
+                rcx, rcy, box_h = result
                 det_cx = rcx * sx
                 det_cy = rcy * sy
 
-                # ── Plausibility gate in TRACKING (fix #2) ───────────────────
-                # The buoy was slamming the crop while still in TRACKING because
-                # there was no distance check here — only COASTING had one.
-                # Reject any detection that's implausibly far from the Kalman
-                # prediction once we have a stable rolling average.
-                pred_cx, pred_cy = kf.position
-                dist_from_pred = np.hypot(det_cx - pred_cx, det_cy - pred_cy)
-                if dist_from_pred > args.max_speed * 2 and len(ground_box_heights) >= 5:
-                    result = None  # treat as missed frame — don't update Kalman
-                elif is_airborne_detection:
+                if is_airborne_detection:
                     # ── Enter AIRBORNE ────────────────────────────────────────
                     state = "AIRBORNE"
                     air_det_buf_x.clear()
@@ -469,28 +361,24 @@ def main():
                     avg_cx = float(np.mean(det_buf_x))
                     avg_cy = float(np.mean(det_buf_y))
                     kf.update(avg_cx, avg_cy)
-                    # Fix #3: only add high-confidence detections to rolling avg
-                    # so it never gets poisoned by marginal detections
-                    if det_conf >= 0.4:
-                        ground_box_heights.append(box_h)
+                    ground_box_heights.append(box_h)
                     recent_dets.append((frame_num, det_cx, det_cy))
                     last_cx_norm = rcx / AW
                     lost_frames  = 0
                     miss_streak  = 0
                     yolo_hits   += 1
-            if result is None:
+            else:
                 miss_streak += 1
                 if miss_streak >= args.miss_grace:
-                    state             = "COASTING"
-                    lost_frames       = 1
-                    coast_count      += 1
+                    state        = "COASTING"
+                    lost_frames  = 1
+                    coast_count += 1
                     pending_candidate = None
-                    reacq_ramp_frames = 0
 
         elif state == "AIRBORNE":
             air_count += 1
             if result is not None:
-                rcx, rcy, box_h, det_conf = result
+                rcx, rcy, box_h = result
                 det_cx = rcx * sx
                 det_cy = rcy * sy
 
@@ -539,16 +427,10 @@ def main():
         elif state == "COASTING":
             coast_count += 1
             lost_frames += 1
-
-            # Decay Kalman velocity each frame while coasting — without this the
-            # constant-velocity model flies off-screen indefinitely at whatever
-            # velocity it had when tracking was lost. Same role as the old
-            # vel_x *= decay + coast_scale combination.
-            kf.x[2] *= 0.92 * 0.75   # decay * coast_scale
-            kf.x[3] *= 0.92 * 0.75
+            # Kalman predict already called — velocity-based coast is free
 
             if result is not None:
-                rcx, rcy, box_h, det_conf = result
+                rcx, rcy, box_h = result
                 cand_cx = rcx * sx
                 cand_cy = rcy * sy
 
@@ -556,11 +438,7 @@ def main():
                 dist_from_pred   = np.hypot(cand_cx - pred_cx, cand_cy - pred_cy)
                 max_plausible    = AW * sx * 0.18
 
-                # Only update Kalman during coast if detection is both close
-                # to predicted position AND has reasonable confidence.
-                # Low-conf detections (conf<0.35) during coast were causing
-                # 54px jumps (frame 663: conf=0.15 moved crop 54px sideways).
-                if dist_from_pred <= max_plausible and det_conf >= 0.35:
+                if dist_from_pred <= max_plausible:
                     kf.update(cand_cx, cand_cy)
                     last_cx_norm = rcx / AW
 
@@ -579,25 +457,7 @@ def main():
                             reacq_miss_streak = 0
                             last_cx_norm = rcx / AW
                             pending_candidate = None
-                            kf.x[2] = 0.0
-                            kf.x[3] = 0.0
-                            # ── Gap-based speed cap (the real fix) ───────────
-                            # Previous formula used lost_frames which is 25x
-                            # too permissive (CSV showed 69px gap closed in
-                            # 0.10s instead of 2.5s).
-                            # Correct approach: measure the actual pixel
-                            # distance from current crop to the detected skier,
-                            # then set cap so it takes exactly 2.5s to close.
-                            # cap = gap_px / (2.5 * FPS)
-                            # Floor at 1.5px/frame so it never fully stalls.
-                            gap_px = np.hypot(cand_cx - smooth_cx,
-                                              cand_cy - smooth_cy)
-                            reacq_speed_cap = max(1.5, gap_px / (2.5 * FPS))
-                            # Scale measurement noise from gap size too —
-                            # large gap = Kalman should barely react at first.
-                            # gap/10 gives ~7 for a 69px gap, ~30 for 300px.
-                            scaled_noise = args.reacquire_noise + (gap_px / 10.0)
-                            kf.set_noise(measurement_noise=scaled_noise)
+                            kf.set_noise(measurement_noise=args.reacquire_noise)
                         else:
                             pending_candidate = (cand_cx, cand_cy)
                     else:
@@ -610,7 +470,7 @@ def main():
         elif state == "REACQUIRING":
             reacq_count += 1
             if result is not None:
-                rcx, rcy, box_h, det_conf = result
+                rcx, rcy, box_h = result
                 det_cx = rcx * sx
                 det_cy = rcy * sy
 
@@ -623,43 +483,21 @@ def main():
                 if reacq_frames >= args.reacquire_frames:
                     ground_box_heights.append(box_h)
                     kf.set_noise(measurement_noise=args.measurement_noise)
-                    state             = "TRACKING"
-                    miss_streak       = 0
-                    reacq_ramp_frames = 1   # start speed ramp — don't snap to max_speed
+                    state       = "TRACKING"
+                    miss_streak = 0
             else:
                 reacq_miss_streak += 1
                 if reacq_miss_streak >= 2:
-                    state           = "COASTING"
-                    lost_frames    += reacq_frames
+                    state        = "COASTING"
+                    lost_frames += reacq_frames
                     reacq_miss_streak = 0
-                    reacq_speed_cap = args.reacquire_max_speed  # reset for next entry
                     kf.set_noise(measurement_noise=args.measurement_noise)
 
         # ── Read Kalman position ─────────────────────────────────────────────
         new_cx, new_cy = kf.position
 
         # ── HARD SPEED CLAMP — always applied, nothing bypasses this ─────────
-        if state == "AIRBORNE":
-            cap_speed = args.air_max_speed
-        elif state == "COASTING":
-            # During coast, cap movement at 15px/frame even for valid
-            # Kalman corrections. The 55px max_speed was firing on coast
-            # detections and creating visible hops (frames 276,692,1187).
-            cap_speed = 15.0
-        elif state == "REACQUIRING":
-            # Gap-based cap: gap_px / (2.5 * FPS) → always 2.5s to close.
-            cap_speed = reacq_speed_cap
-        elif state == "TRACKING" and reacq_ramp_frames > 0:
-            # Ramp speed cap from reacq_speed_cap up to max_speed over 1 second
-            # after a reacquire. Prevents the snap from 1.5px/f → 55px/f on
-            # the exact frame we transition from REACQUIRING to TRACKING.
-            ramp_progress = min(1.0, reacq_ramp_frames / FPS)
-            cap_speed = reacq_speed_cap + (args.max_speed - reacq_speed_cap) * ramp_progress
-            reacq_ramp_frames += 1
-            if ramp_progress >= 1.0:
-                reacq_ramp_frames = 0  # ramp complete
-        else:
-            cap_speed = args.max_speed
+        cap_speed = args.air_max_speed if state == "AIRBORNE" else args.max_speed
         move_x = new_cx - smooth_cx
         move_y = new_cy - smooth_cy
         dist   = np.hypot(move_x, move_y)
@@ -675,10 +513,9 @@ def main():
         kf.x[0] = smooth_cx
         kf.x[1] = smooth_cy
 
-        box_h_log  = result[2] if result is not None else -1
-        conf_log   = result[3] if result is not None else -1
+        box_h_log = result[2] if result is not None else -1
         vx, vy = kf.velocity
-        #debug_log.write(f"{frame_num},{frame_num/FPS:.3f},{state},{result is not None},{box_h_log:.1f},{conf_log:.2f},{is_airborne_detection},{new_cx:.1f},{new_cy:.1f},{smooth_cx:.1f},{smooth_cy:.1f},{vx:.2f},{vy:.2f}\n")
+        # debug_log.write(f"{frame_num},{frame_num/FPS:.3f},{state},{result is not None},{box_h_log:.1f},{is_airborne_detection},{new_cx:.1f},{new_cy:.1f},{smooth_cx:.1f},{smooth_cy:.1f},{vx:.2f},{vy:.2f}\n")
 
         x1, y1 = clamp_crop(smooth_cx, smooth_cy, CROP_W, CROP_H, FW, FH, args.headroom)
         cropped = frame[y1:y1+CROP_H, x1:x1+CROP_W]
@@ -687,7 +524,7 @@ def main():
 
     cap.release()
     writer.release()
-    #debug_log.close()
+    # debug_log.close()
 
     print(f"\nDone → {args.output}")
     print(f"Tracking: {yolo_hits} | Coasting: {coast_count} | Reacquiring: {reacq_count} | Airborne: {air_count}")
