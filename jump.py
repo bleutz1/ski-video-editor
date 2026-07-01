@@ -375,8 +375,8 @@ def main():
     print("Processing...\n")
     frame_num = 0
 
-    #debug_log = open(args.output + ".debug.csv", "w")
-    #debug_log.write("frame,time_s,state,detected,box_h,conf,is_airborne,target_cx,target_cy,smooth_cx,smooth_cy,kf_vx,kf_vy\n")
+    debug_log = open(args.output + ".debug.csv", "w")
+    debug_log.write("frame,time_s,state,detected,box_h,conf,is_airborne,target_cx,target_cy,smooth_cx,smooth_cy,kf_vx,kf_vy\n")
 
     while True:
         ret, frame = cap.read()
@@ -424,7 +424,7 @@ def main():
             _, _, box_h, det_conf = result
             if len(ground_box_heights) >= 8:
                 avg_ground_h = np.mean(ground_box_heights)
-                if box_h < avg_ground_h * 0.45:
+                if box_h < avg_ground_h * 0.60:
                     is_airborne_detection = True
 
         # ── Always predict first ─────────────────────────────────────────────
@@ -480,7 +480,16 @@ def main():
                     yolo_hits   += 1
             if result is None:
                 miss_streak += 1
-                if miss_streak >= args.miss_grace:
+                # If box_h has been shrinking toward airborne range the skier
+                # is probably on the ramp with intermittent detections.
+                # Double miss_grace to prevent rapid TRACKING/COASTING/REACQUIRING
+                # cycling that causes jitter during the ramp phase.
+                if (last_det_box_h is not None and len(ground_box_heights) >= 5
+                        and last_det_box_h < float(np.mean(ground_box_heights)) * 0.75):
+                    effective_grace = args.miss_grace * 2
+                else:
+                    effective_grace = args.miss_grace
+                if miss_streak >= effective_grace:
                     state             = "COASTING"
                     lost_frames       = 1
                     coast_count      += 1
@@ -508,7 +517,7 @@ def main():
                 # Exit AIRBORNE once box height returns to near ground size
                 if len(ground_box_heights) >= 5:
                     avg_ground_h = np.mean(ground_box_heights)
-                    if box_h >= avg_ground_h * 0.85:
+                    if box_h >= avg_ground_h * 0.80:
                         # Landed — restore ground-phase noise
                         kf.set_noise(
                             process_noise=args.process_noise,
@@ -678,7 +687,7 @@ def main():
         box_h_log  = result[2] if result is not None else -1
         conf_log   = result[3] if result is not None else -1
         vx, vy = kf.velocity
-        #debug_log.write(f"{frame_num},{frame_num/FPS:.3f},{state},{result is not None},{box_h_log:.1f},{conf_log:.2f},{is_airborne_detection},{new_cx:.1f},{new_cy:.1f},{smooth_cx:.1f},{smooth_cy:.1f},{vx:.2f},{vy:.2f}\n")
+        debug_log.write(f"{frame_num},{frame_num/FPS:.3f},{state},{result is not None},{box_h_log:.1f},{conf_log:.2f},{is_airborne_detection},{new_cx:.1f},{new_cy:.1f},{smooth_cx:.1f},{smooth_cy:.1f},{vx:.2f},{vy:.2f}\n")
 
         x1, y1 = clamp_crop(smooth_cx, smooth_cy, CROP_W, CROP_H, FW, FH, args.headroom)
         cropped = frame[y1:y1+CROP_H, x1:x1+CROP_W]
@@ -687,7 +696,7 @@ def main():
 
     cap.release()
     writer.release()
-    #debug_log.close()
+    debug_log.close()
 
     print(f"\nDone → {args.output}")
     print(f"Tracking: {yolo_hits} | Coasting: {coast_count} | Reacquiring: {reacq_count} | Airborne: {air_count}")

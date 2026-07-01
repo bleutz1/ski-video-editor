@@ -229,8 +229,8 @@ def main():
 
     # Debug logging — matches jump.py's format for direct comparison
     # Debug logging — uncomment to re-enable per-frame CSV diagnostics
-    # debug_log = open(args.output + ".debug.csv", "w")
-    # debug_log.write("frame,time_s,state,detected,box_h,target_cx,target_cy,smooth_cx,smooth_cy\n")
+    debug_log = open(args.output + ".debug.csv", "w")
+    debug_log.write("frame,time_s,state,detected,box_h,target_cx,target_cy,smooth_cx,smooth_cy\n")
 
     while True:
         ret, frame = cap.read()
@@ -395,7 +395,7 @@ def main():
         smooth_cy += move_y
 
         box_h_log = result[2] if result is not None else -1
-        # debug_log.write(f"{frame_num},{frame_num/FPS:.3f},{state},{result is not None},{box_h_log:.1f},{target_cx:.1f},{target_cy:.1f},{smooth_cx:.1f},{smooth_cy:.1f}\n")
+        debug_log.write(f"{frame_num},{frame_num/FPS:.3f},{state},{result is not None},{box_h_log:.1f},{target_cx:.1f},{target_cy:.1f},{smooth_cx:.1f},{smooth_cy:.1f}\n")
 
         x1, y1 = clamp_crop(smooth_cx, smooth_cy, CROP_W, CROP_H, FW, FH, args.headroom)
         cropped = frame[y1:y1+CROP_H, x1:x1+CROP_W]
@@ -404,7 +404,7 @@ def main():
 
     cap.release()
     writer.release()
-    # debug_log.close()
+    debug_log.close()
 
     print(f"\nDone \u2192 {args.output}")
     print(f"Tracking: {yolo_hits} | Coasting: {coast_count} | Reacquiring: {reacq_count}")
